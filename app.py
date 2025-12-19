@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
 # --- 1. PAGE CONFIG ---
-st.set_page_config(page_title="Regression Lab Pro", layout="wide")
+st.set_page_config(page_title="Regression", layout="wide")
 
 st.markdown("""
     <style>
@@ -46,7 +46,7 @@ if method == "Elastic Net":
     l1_ratio = st.sidebar.slider("Mixing Ratio (L1 vs L2)", 0.0, 1.0, 0.5)
 
 st.sidebar.markdown("---")
-jitter_active = st.sidebar.checkbox("🧬 Enable Jitter (Stability Test)")
+jitter_active = st.sidebar.checkbox(" Enable Jitter (Stability Test)")
 
 # --- 4. MODEL ENGINE ---
 features = ['age', 'sex', 'bmi', 'children', 'smoker', 'region']
@@ -77,7 +77,7 @@ model.fit(X_scaled, y)
 y_pred = model.predict(X_scaled)
 
 # --- 5. TABS ---
-st.title("🔬 Advanced Regression Analysis Lab")
+st.title("Regression Analysis ")
 st.markdown(f"**Current Approach:** {method} | **Effective λ:** {lam_eff:.4f}")
 
 tab1, tab2, tab3 = st.tabs(["📊 Performance Dashboard", "🌌 3D Optimization Surface", "📋 Data Statistics"])
@@ -124,7 +124,7 @@ with tab2:
     st.header("The 3D Loss Landscape")
     
     st.markdown("""
-    ### 💡 How to understand this 3D Surface:
+    ###  How to understand this 3D Surface:
     1. **The Valley:** The model wants to reach the deepest part (minimum error).
     2. **The Ground:** We are looking at two imaginary weights (W1 and W2).
     3. **The Effect of Lambda:** When you increase λ, you are adding a 'penalty' that pulls the bottom of the valley toward zero.
