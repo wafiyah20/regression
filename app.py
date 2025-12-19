@@ -128,6 +128,48 @@ with tab1:
     st.plotly_chart(fig_pa, use_container_width=True)
 
 with tab2:
+    with tab2:
+    st.markdown("---")
+    st.header("🌌 3D Loss Landscape")
+    st.write("This 3D surface shows the Error (MSE) + Penalty. The model's goal is to find the lowest point.")
+    
+    # Create grid for 3D
+    w1_3d = np.linspace(-2, 2, 50)
+    w2_3d = np.linspace(-2, 2, 50)
+    W1, W2 = np.meshgrid(w1_3d, w2_3d)
+    
+    # Base Loss (The Bowl)
+    RSS = (W1 - 1)**2 + (W2 - 1)**2
+    
+    # Add Penalty
+    if "Ridge" in method:
+        penalty = lam * (W1**2 + W2**2)
+        title_3d = "Ridge: Smooth Paraboloid"
+    elif "Lasso" in method:
+        penalty = lam * (np.abs(W1) + np.abs(W2))
+        title_3d = "Lasso: Sharp 'V' Shape at Axes"
+    else:
+        penalty = 0
+        title_3d = "OLS: Simple Quadratic Bowl"
+        
+    Z = RSS + penalty
+
+    fig_3d = go.Figure(data=[go.Surface(z=Z, x=w1_3d, y=w2_3d, colorscale='Viridis')])
+    
+    fig_3d.update_layout(
+        title=title_3d,
+        scene=dict(
+            xaxis_title='Weight 1',
+            yaxis_title='Weight 2',
+            zaxis_title='Total Loss',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=0.8))
+        ),
+        width=800,
+        height=600,
+        margin=dict(l=0, r=0, b=0, t=40)
+    )
+    
+    st.plotly_chart(fig_3d, use_container_width=True)
     st.header("The Geometry of Optimization")
     g_col1, g_col2 = st.columns(2)
     
