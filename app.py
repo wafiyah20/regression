@@ -5,114 +5,179 @@ import plotly.graph_objects as go
 import plotly.express as px
 from sklearn.linear_model import Ridge, Lasso, ElasticNet, LinearRegression
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
-# --- STYLING & THEME ---
-st.set_page_config(page_title="Regression Lab Pro", layout="wide")
+# --- 1. PAGE CONFIG & STYLE ---
+st.set_page_config(page_title="Advanced Regression Lab", layout="wide")
 
-# Custom CSS for Light Theme & Smooth UI
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    div[data-testid="stExpander"] { background-color: white; border-radius: 10px; }
+    .main { background-color: #fcfcfc; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #eee; }
+    h1, h2, h3 { color: #1e293b; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CORE ENGINE ---
+# --- 2. DATA ENGINE ---
 @st.cache_data
-def get_data():
-    # Use your insurance.csv path
-    df = pd.read_csv("insurance.csv")
+def load_and_clean_data():
+    # Attempt to load insurance dataset
+    try:
+        df = pd.read_csv("insurance.csv")
+    except:
+        st.error("Please ensure 'insurance.csv' is in your GitHub folder.")
+        return None
+    
+    # Feature Engineering for visualization
+    le = LabelEncoder()
     for col in ['sex', 'smoker', 'region']:
-        df[col] = LabelEncoder().fit_transform(df[col])
+        df[col] = le.fit_transform(df[col])
     return df
 
-df = get_data()
-target = 'charges'
-features = [col for col in df.columns if col != target]
+df = load_and_clean_data()
 
-X = df[features]
-y = df[target]
+if df is not None:
+    # --- 3. SIDEBAR CONTROLS ---
+    st.sidebar.title("🎮 Control Panel")
+    
+    method = st.sidebar.selectbox("Regression Method", 
+                                ["OLS (MLE)", "Ridge (MAP - L2)", "Lasso (MAP - L1)", "Elastic Net"])
+    
+    # Logarithmic Slider for λ (The Fix for 'No Movement')
+    # This allows λ to range from 0.01 to 1000 effectively
+    exp = st.sidebar.slider("Regularization Strength (10^x)", -2.0, 4.0, 0.0, 0.1)
+    lam = 10**exp
+    
+    alpha_en = 0.5
+    if method == "Elastic Net":
+        alpha_en = st.sidebar.slider("Elastic Net α (L1 vs L2 ratio)", 0.0, 1.0, 0.5)
 
-# Scale features (Critical for Regularization visualization)
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Creativity: Stress Tests")
+    jitter_mode = st.sidebar.checkbox("🧬 Apply Jitter (Stability Test)")
+    
+    # --- 4. PRE-PROCESSING ---
+    features = ['age', 'sex', 'bmi', 'children', 'smoker', 'region']
+    target = 'charges'
+    
+    X = df[features].values
+    y = df[target].values
+    
+    # Novelty: The Jitter Test
+    if jitter_mode:
+        noise = np.random.normal(0, X.std(axis=0) * 0.05, X.shape)
+        X = X + noise
 
-# --- SIDEBAR: INTERACTIVE CONTROLS ---
-st.sidebar.title("🛠️ Model Studio")
-method = st.sidebar.radio("Select Strategy", ["OLS (MLE)", "Ridge (L2)", "Lasso (L1)", "Elastic Net"])
-lam = st.sidebar.slider("Regularization Strength (λ)", 0.0, 20.0, 1.0, 0.1)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # --- 5. MODEL ENGINE ---
+    if method == "OLS (MLE)":
+        model = LinearRegression()
+    elif method == "Ridge (MAP - L2)":
+        model = Ridge(alpha=lam)
+    elif method == "Lasso (MAP - L1)":
+        model = Lasso(alpha=lam)
+    else:
+        model = ElasticNet(alpha=lam, l1_ratio=alpha_en)
 
-# NOVELTY: The Jitter Test
-st.sidebar.markdown("---")
-st.sidebar.subheader("Advanced Tests")
-jitter = st.sidebar.checkbox("🧬 Enable Stability Test (Jitter)")
-if jitter:
-    X_scaled = X_scaled + np.random.normal(0, 0.05, X_scaled.shape)
+    model.fit(X_scaled, y)
+    y_pred = model.predict(X_scaled)
+    
+    # --- 6. LAYOUT: VISUALIZATIONS ---
+    st.title("🔬 Advanced Regression Lab")
+    st.markdown(f"Currently viewing: **{method}** | λ = **{lam:.4f}**")
 
-# --- MODEL SELECTION LOGIC ---
-if method == "OLS (MLE)":
-    model = LinearRegression()
-elif method == "Ridge (L2)":
-    model = Ridge(alpha=lam)
-elif method == "Lasso (L1)":
-    model = Lasso(alpha=lam)
-else:
-    l1_rat = st.sidebar.slider("L1 Ratio (α)", 0.0, 1.0, 0.5)
-    model = ElasticNet(alpha=lam, l1_ratio=l1_rat)
+    tab1, tab2, tab3 = st.tabs(["📈 Main Dashboard", "📐 Geometry & Math", "📋 Data Statistics"])
 
-model.fit(X_scaled, y)
-y_pred = model.predict(X_scaled)
-weights = model.coef_
+    with tab1:
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # INTERACTIVE REGULARIZATION PATH
+            st.subheader("Weight Shrinkage Path")
+            alphas_path = np.logspace(-2, 4, 100)
+            coefs = []
+            for a in alphas_path:
+                if "Ridge" in method: m = Ridge(alpha=a)
+                elif "Lasso" in method: m = Lasso(alpha=a)
+                elif "Elastic" in method: m = ElasticNet(alpha=a, l1_ratio=alpha_en)
+                else: m = LinearRegression(); a=0
+                m.fit(X_scaled, y)
+                coefs.append(m.coef_)
+            
+            coefs = np.array(coefs)
+            fig_path = go.Figure()
+            for i, name in enumerate(features):
+                fig_path.add_trace(go.Scatter(x=alphas_path, y=coefs[:, i], name=name,
+                                             mode='lines', line=dict(width=2)))
+            
+            fig_path.add_vline(x=lam, line_dash="dash", line_color="red", annotation_text="Active λ")
+            fig_path.update_layout(xaxis_type="log", template="plotly_white", 
+                                  xaxis_title="Lambda (Log Scale)", yaxis_title="Coefficient Value")
+            st.plotly_chart(fig_path, use_container_width=True)
 
-# --- VISUALIZATION 1: INTERACTIVE WEIGHT PATH ---
-st.subheader("📈 The Weight Shrinkage Journey")
-st.caption("Hover over the curves to see which features 'survive' regularization.")
+        with col2:
+            # WEIGHT IMPORTANCE BAR
+            st.subheader("Feature Weights")
+            weight_df = pd.DataFrame({'Feature': features, 'Weight': model.coef_})
+            fig_bar = px.bar(weight_df, x='Weight', y='Feature', orientation='h',
+                             color='Weight', color_continuous_scale='RdBu_r')
+            fig_bar.update_layout(template="plotly_white", showlegend=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-# Pre-calculate path for the graph background
-alphas = np.linspace(0.01, 20, 50)
-path_data = []
-for a in alphas:
-    if "Ridge" in method: m = Ridge(alpha=a)
-    elif "Lasso" in method: m = Lasso(alpha=a)
-    else: m = LinearRegression()
-    m.fit(X_scaled, y)
-    path_data.append(m.coef_)
+        # METRICS ROW
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("R² Score", f"{r2_score(y, y_pred):.3f}")
+        m2.metric("MAE", f"{mean_absolute_error(y, y_pred):.0f}")
+        m3.metric("MSE", f"{mean_squared_error(y, y_pred):.0e}")
+        m4.metric("L1 Norm", f"{np.linalg.norm(model.coef_, 1):.2f}")
+        m5.metric("L2 Norm", f"{np.linalg.norm(model.coef_, 2):.2f}")
 
-path_df = np.array(path_data)
-fig_path = go.Figure()
+        # PREDICTED VS ACTUAL
+        st.subheader("Predicted vs Actual Analysis")
+        fig_pred = px.scatter(x=y, y=y_pred, opacity=0.4, color=np.abs(y-y_pred),
+                             labels={'x': 'Actual Charges', 'y': 'Predicted Charges'},
+                             color_continuous_scale='ice')
+        fig_pred.add_shape(type="line", x0=y.min(), y0=y.min(), x1=y.max(), y1=y.max(), line=dict(color="Red", dash="dash"))
+        fig_pred.update_layout(template="plotly_white")
+        st.plotly_chart(fig_pred, use_container_width=True)
 
-for i, col in enumerate(features):
-    fig_path.add_trace(go.Scatter(x=alphas, y=path_df[:, i], name=col,
-                                 line=dict(width=2), hovertemplate=f"<b>{col}</b><br>λ: %{{x}}<br>Weight: %{{y:.2f}}"))
+    with tab2:
+        # GEOMETRY OF REGULARIZATION
+        st.subheader("The Probabilistic View (MLE vs MAP)")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### Gaussian Likelihood & Prior")
+            # Visualization of Likelihood (MLE) vs Posterior (MAP)
+            x_range = np.linspace(-5, 5, 100)
+            prior = np.exp(-0.5 * x_range**2) # Simplified Gaussian Prior
+            likelihood = np.exp(-0.5 * (x_range - 2)**2) # Centered at a weight of 2
+            posterior = prior * likelihood
+            
+            fig_dist = go.Figure()
+            fig_dist.add_trace(go.Scatter(x=x_range, y=likelihood, name="Likelihood (MLE)", fill='tozeroy'))
+            fig_dist.add_trace(go.Scatter(x=x_range, y=prior, name="Prior (Regularizer)", fill='tozeroy'))
+            fig_dist.add_trace(go.Scatter(x=x_range, y=posterior, name="Posterior (MAP)", line=dict(width=4, color='black')))
+            fig_dist.update_layout(template="plotly_white", title="Probabilistic Weight Estimation")
+            st.plotly_chart(fig_dist, use_container_width=True)
+            
+        with c2:
+            st.markdown("#### Step-by-Step Matrix Math")
+            st.latex(r"W_{OLS} = (X^T X)^{-1} X^T Y")
+            st.latex(r"W_{Ridge} = (X^T X + \lambda I)^{-1} X^T Y")
+            st.info("Notice how λ I is added to the diagonal, making the matrix inversion stable.")
 
-# Vertical indicator for current Lambda
-fig_path.add_vline(x=lam, line_dash="dash", line_color="#ff4b4b", annotation_text="Active λ")
-fig_path.update_layout(template="plotly_white", height=400, margin=dict(l=20, r=20, t=20, b=20))
-st.plotly_chart(fig_path, use_container_width=True)
+    with tab3:
+        st.subheader("Dataset Statistics & Correlations")
+        st.write(df.describe())
+        
+        # Correlation Matrix
+        corr = df.corr()
+        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r', title="Feature Correlation (Rxx & Rxy)")
+        st.plotly_chart(fig_corr, use_container_width=True)
 
-# --- VISUALIZATION 2: PREDICTED VS ACTUAL (WITH RESIDUALS) ---
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.subheader("🎯 Prediction Accuracy")
-    fig_res = px.scatter(x=y, y=y_pred, color=np.abs(y-y_pred),
-                         color_continuous_scale='Viridis', labels={'x': 'Actual Charges', 'y': 'Predicted'},
-                         opacity=0.6)
-    fig_res.add_shape(type="line", x0=y.min(), y0=y.min(), x1=y.max(), y1=y.max(), line=dict(color="Red", dash="dot"))
-    fig_res.update_layout(template="plotly_white", coloraxis_showscale=False)
-    st.plotly_chart(fig_res, use_container_width=True)
-
-with col2:
-    st.subheader("💎 Weight Sparsity")
-    # Horizontal bar chart of weights
-    weight_df = pd.DataFrame({'Feature': features, 'Weight': weights}).sort_values('Weight')
-    fig_weights = px.bar(weight_df, x='Weight', y='Feature', orientation='h',
-                         color='Weight', color_continuous_scale='RdBu_r')
-    fig_weights.update_layout(template="plotly_white", showlegend=False)
-    st.plotly_chart(fig_weights, use_container_width=True)
-
-# --- NOVELTY: THE GEOMETRY OF CONSTRAINTS (Visual Explanation) ---
-
-with st.expander("🔮 Advanced Theory: Why is Lasso sparse?"):
-    st.write("In Lasso (L1), the constraint is a **Diamond**. The Loss Contours are more likely to hit the 'corners' of the diamond, which are exactly on the axes (where one weight becomes zero). In Ridge (L2), the constraint is a **Circle**, which doesn't have corners, so weights stay small but rarely hit zero.")
+# --- 7. FOOTER ---
+st.markdown("---")
+st.caption("Developed for Advanced Regression Learning | Novel Features: Log-Lambda Scaling & Jitter Stability Analysis")
