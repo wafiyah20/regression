@@ -15,12 +15,13 @@ from scipy.stats import norm, laplace
 # ------------------------------
 st.set_page_config(page_title="Interactive Regression Lab", layout="wide", page_icon="📊")
 
+# CSS for peach + brown theme
 st.markdown("""
 <style>
-body {background-color: #FFE5B4;}
-.sidebar .sidebar-content {background-color: #FFDAB9;}
+body {background-color: #FFF0E0;}
+.sidebar .sidebar-content {background-color: #FFE5B4;}
 h1, h2, h3, h4, h5, h6 {color:#5C4033;}
-.stMetric-label, .stMarkdown, .stText {color:#5C4033;}
+.stMetric-label, .stMarkdown, .stText, .stCode {color:#5C4033;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,7 +48,7 @@ model_choice = st.sidebar.selectbox("Select Model", ["MLE", "MAP", "Ridge", "Las
 
 # λ slider (for regularized models)
 lambda_val = 0.1
-if model_choice in ["Ridge", "Lasso", "Elastic Net"]:
+if model_choice in ["Ridge", "Lasso", "Elastic Net", "MAP"]:
     lambda_val = st.sidebar.slider("λ (Regularization strength)", 0.0, 5.0, 0.1, 0.01)
 
 # α slider (for Elastic Net)
@@ -55,7 +56,7 @@ alpha_val = 0.5
 if model_choice == "Elastic Net":
     alpha_val = st.sidebar.slider("α (L1/L2 mix)", 0.0, 1.0, 0.5, 0.01)
 
-# Noise slider (for all)
+# Noise slider (for all models)
 noise_val = st.sidebar.slider("Noise (Add to target)", 0.0, 5.0, 0.0, 0.1)
 
 # ------------------------------
@@ -86,7 +87,7 @@ elif model_choice == "Lasso":
 elif model_choice == "Elastic Net":
     model = ElasticNet(alpha=lambda_val, l1_ratio=alpha_val)
 elif model_choice == "MAP":
-    # General MAP example: simple ridge for illustration
+    # General MAP example: Ridge-like prior for illustration
     model = Ridge(alpha=lambda_val)
 
 pipe = Pipeline([
@@ -110,10 +111,20 @@ col2.metric("RMSE", f"{rmse:,.2f}")
 col3.metric("R² Score", f"{r2:.3f}")
 
 # ------------------------------
+# Clean Feature Names
+# ------------------------------
+feature_names_raw = pipe.named_steps["prep"].get_feature_names_out()
+feature_names = []
+for f in feature_names_raw:
+    if "cat" in f:
+        feature_names.append(f.split("__")[1])  # remove 'cat__' prefix
+    else:
+        feature_names.append(f)
+
+# ------------------------------
 # Dynamic Regression Equation
 # ------------------------------
 st.subheader("Regression Equation")
-feature_names = list(pipe.named_steps["prep"].get_feature_names_out())
 weights = pipe.named_steps["model"].coef_
 intercept = pipe.named_steps["model"].intercept_
 
@@ -132,15 +143,16 @@ fig1.add_trace(go.Scatter(x=y_test, y=pred, mode='markers',
 fig1.add_trace(go.Scatter(x=y_test, y=y_test, mode='lines',
                           line=dict(color='darkred', dash='dash'), name='Ideal'))
 fig1.update_layout(xaxis_title="Actual Charges", yaxis_title="Predicted Charges",
-                   plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4")
+                   plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4",
+                   font=dict(color="#5C4033"))
 st.plotly_chart(fig1, use_container_width=True)
 
 # ------------------------------
 # Regularization Path (Weights vs λ) for Ridge/Lasso/Elastic Net
 # ------------------------------
-if model_choice in ["Ridge", "Lasso", "Elastic Net"]:
+if model_choice in ["Ridge", "Lasso", "Elastic Net", "MAP"]:
     st.subheader("Regularization Path (Weights vs λ)")
-    lambda_range = np.linspace(0, 5, 50)
+    lambda_range = np.linspace(0.01, 5, 100)  # smooth 100 points
     coef_paths = []
     for lam in lambda_range:
         if model_choice == "Ridge":
@@ -149,19 +161,23 @@ if model_choice in ["Ridge", "Lasso", "Elastic Net"]:
             temp_model = Lasso(alpha=lam)
         elif model_choice == "Elastic Net":
             temp_model = ElasticNet(alpha=lam, l1_ratio=alpha_val)
+        elif model_choice == "MAP":
+            temp_model = Ridge(alpha=lam)
         temp_pipe = Pipeline([("prep", preprocessor), ("model", temp_model)])
         temp_pipe.fit(X_train, y_train)
         coef_paths.append(temp_pipe.named_steps["model"].coef_)
     coef_paths = np.array(coef_paths)
     fig2 = go.Figure()
     for i, fname in enumerate(feature_names):
-        fig2.add_trace(go.Scatter(x=lambda_range, y=coef_paths[:, i], mode='lines', name=fname))
+        fig2.add_trace(go.Scatter(x=lambda_range, y=coef_paths[:, i],
+                                  mode='lines', name=fname))
     fig2.update_layout(xaxis_title="λ", yaxis_title="Coefficient Value",
-                       plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4")
+                       plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4",
+                       font=dict(color="#5C4033"))
     st.plotly_chart(fig2, use_container_width=True)
 
 # ------------------------------
-# Gaussian Distributions (Likelihood, Prior, Posterior) for MLE/MAP
+# Gaussian Distributions (Likelihood, Prior, Posterior)
 # ------------------------------
 st.subheader("Gaussian Distributions")
 fig3 = go.Figure()
@@ -173,15 +189,18 @@ if model_choice in ["MAP", "Ridge", "Elastic Net"]:
     prior_std = np.std(weights)
     x_vals = np.linspace(-3*prior_std, 3*prior_std, 100)
     prior_vals = norm.pdf(x_vals, 0, prior_std)
-    fig3.add_trace(go.Scatter(x=x_vals, y=prior_vals*len(weights)*2, mode='lines', name="Prior (Gaussian)", line=dict(color='green')))
+    fig3.add_trace(go.Scatter(x=x_vals, y=prior_vals*len(weights)*2,
+                              mode='lines', name="Prior (Gaussian)", line=dict(color='green')))
 elif model_choice == "Lasso":
     prior_std = np.std(weights)
     x_vals = np.linspace(-3*prior_std, 3*prior_std, 100)
     prior_vals = laplace.pdf(x_vals, 0, prior_std)
-    fig3.add_trace(go.Scatter(x=x_vals, y=prior_vals*len(weights)*2, mode='lines', name="Prior (Laplace)", line=dict(color='green')))
+    fig3.add_trace(go.Scatter(x=x_vals, y=prior_vals*len(weights)*2,
+                              mode='lines', name="Prior (Laplace)", line=dict(color='green')))
 
 fig3.update_layout(barmode='overlay', xaxis_title='Value', yaxis_title='Frequency',
-                   plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4")
+                   plot_bgcolor="#FFF0E0", paper_bgcolor="#FFE5B4",
+                   font=dict(color="#5C4033"))
 fig3.update_traces(opacity=0.7)
 st.plotly_chart(fig3, use_container_width=True)
 
@@ -190,12 +209,12 @@ st.plotly_chart(fig3, use_container_width=True)
 # ------------------------------
 st.subheader("📘 Teach-Me Mode")
 if model_choice == "MLE":
-    st.info("OLS is MLE under Gaussian noise. No regularization is applied.")
+    st.info("OLS is Maximum Likelihood Estimation (MLE) under Gaussian noise. No regularization is applied.")
 elif model_choice == "MAP":
-    st.info("MAP general: combining likelihood and prior to get posterior. Regularization corresponds to prior belief.")
+    st.info("MAP general: combines likelihood and prior to get posterior. Regularization = prior belief.")
 elif model_choice == "Ridge":
-    st.info("Ridge = MAP with Gaussian prior. λ controls weight shrinkage.")
+    st.info("Ridge = MAP with Gaussian prior. λ controls smooth shrinkage of weights.")
 elif model_choice == "Lasso":
-    st.info("Lasso = MAP with Laplace prior. λ controls sparsity; some weights become zero.")
+    st.info("Lasso = MAP with Laplace prior. λ controls sparsity; some weights become exactly 0.")
 elif model_choice == "Elastic Net":
     st.info("Elastic Net = MAP with combined L1/L2 prior. λ controls regularization, α controls L1/L2 balance.")
