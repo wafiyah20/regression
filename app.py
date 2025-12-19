@@ -73,6 +73,7 @@ y_pred = model.predict(X_scaled)
 
 # --- 5. TABS ---
 st.title("Regression Analysis")
+st.markdown(f"**Current Approach:** {method} | **Effective λ:** {lam_eff:.4f}")
 tab1, tab2, tab3 = st.tabs(["📊 Performance Dashboard", "🌌 3D Optimization Surface", "📋 Data Statistics"])
 
 with tab1:
