@@ -5,112 +5,114 @@ import plotly.graph_objects as go
 import plotly.express as px
 from sklearn.linear_model import Ridge, Lasso, ElasticNet, LinearRegression
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import mean_squared_error, r2_score
 
-# --- UI CONFIG ---
-st.set_page_config(page_title="Advanced Regression Lab", layout="wide")
-st.title("🔬 Interactive Regression & Regularization Lab")
-st.markdown("---")
+# --- STYLING & THEME ---
+st.set_page_config(page_title="Regression Lab Pro", layout="wide")
 
-# --- DATA LOADING ---
+# Custom CSS for Light Theme & Smooth UI
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    div[data-testid="stExpander"] { background-color: white; border-radius: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- CORE ENGINE ---
 @st.cache_data
-def load_data():
-    df = pd.read_csv("insurance.csv") # Ensure this is in your GitHub
-    # Quick Encoding for Categorical
-    le = LabelEncoder()
+def get_data():
+    # Use your insurance.csv path
+    df = pd.read_csv("insurance.csv")
     for col in ['sex', 'smoker', 'region']:
-        df[col] = le.fit_transform(df[col])
+        df[col] = LabelEncoder().fit_transform(df[col])
     return df
 
-df = load_data()
-X = df.drop('charges', axis=1)
-y = df['charges']
+df = get_data()
+target = 'charges'
+features = [col for col in df.columns if col != target]
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.header("Model Parameters")
-method = st.sidebar.selectbox("Method", ["OLS (MLE)", "Ridge", "Lasso", "Elastic Net"])
-lam = st.sidebar.slider("Lambda (λ) / Alpha", 0.0, 100.0, 1.0)
-en_ratio = st.sidebar.slider("L1 Ratio (Elastic Net only)", 0.0, 1.0, 0.5)
+X = df[features]
+y = df[target]
 
-# Stress Test Toggle
-st.sidebar.markdown("---")
-st.sidebar.subheader("Novelty Features")
-add_noise = st.sidebar.checkbox("Apply Perturbation (Jitter) Test")
-
-if add_noise:
-    noise = np.random.normal(0, X.std() * 0.1, X.shape)
-    X = X + noise
-
-# Scale data for better visualization
+# Scale features (Critical for Regularization visualization)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# --- MODEL ENGINE ---
+# --- SIDEBAR: INTERACTIVE CONTROLS ---
+st.sidebar.title("🛠️ Model Studio")
+method = st.sidebar.radio("Select Strategy", ["OLS (MLE)", "Ridge (L2)", "Lasso (L1)", "Elastic Net"])
+lam = st.sidebar.slider("Regularization Strength (λ)", 0.0, 20.0, 1.0, 0.1)
+
+# NOVELTY: The Jitter Test
+st.sidebar.markdown("---")
+st.sidebar.subheader("Advanced Tests")
+jitter = st.sidebar.checkbox("🧬 Enable Stability Test (Jitter)")
+if jitter:
+    X_scaled = X_scaled + np.random.normal(0, 0.05, X_scaled.shape)
+
+# --- MODEL SELECTION LOGIC ---
 if method == "OLS (MLE)":
     model = LinearRegression()
-elif method == "Ridge":
+elif method == "Ridge (L2)":
     model = Ridge(alpha=lam)
-elif method == "Lasso":
+elif method == "Lasso (L1)":
     model = Lasso(alpha=lam)
 else:
-    model = ElasticNet(alpha=lam, l1_ratio=en_ratio)
+    l1_rat = st.sidebar.slider("L1 Ratio (α)", 0.0, 1.0, 0.5)
+    model = ElasticNet(alpha=lam, l1_ratio=l1_rat)
 
 model.fit(X_scaled, y)
 y_pred = model.predict(X_scaled)
+weights = model.coef_
 
-# --- VISUALIZATION 1: REGULARIZATION PATH (The "Curves") ---
-def plot_paths():
-    alphas = np.logspace(-2, 4, 50)
-    coefs = []
-    for a in alphas:
-        if method == "Ridge": m = Ridge(alpha=a)
-        elif method == "Lasso": m = Lasso(alpha=a)
-        else: m = LinearRegression(); a=0
-        m.fit(X_scaled, y)
-        coefs.append(m.coef_)
-        
-    coefs = np.array(coefs)
-    fig = go.Figure()
-    for i, col in enumerate(X.columns):
-        fig.add_trace(go.Scatter(x=alphas, y=coefs[:, i], name=col, mode='lines'))
-    
-    fig.update_layout(title="Regularization Path (Weight vs λ)", xaxis_type="log",
-                      xaxis_title="Lambda", yaxis_title="Weight Value", height=400)
-    # Add vertical line for current lambda
-    fig.add_vline(x=lam, line_dash="dash", line_color="red", annotation_text="Current λ")
-    return fig
+# --- VISUALIZATION 1: INTERACTIVE WEIGHT PATH ---
+st.subheader("📈 The Weight Shrinkage Journey")
+st.caption("Hover over the curves to see which features 'survive' regularization.")
 
-# --- VISUALIZATION 2: THE GEOMETRY (Novelty) ---
-def plot_geometry():
-    # Showing relationship between top 2 features: Smoker vs Age
-    st.subheader("📐 The Geometry of the Constraint")
-    st.info("This shows how the 'Loss Bowl' meets the 'Regularization Shape'.")
-    # (Implementation of contour logic here)
-    # For now, let's use a placeholder Scatter for Predicted vs Actual
-    fig = px.scatter(x=y, y=y_pred, labels={'x': 'Actual', 'y': 'Predicted'}, 
-                     title="Predicted vs Actual", opacity=0.5)
-    fig.add_shape(type="line", x0=y.min(), y0=y.min(), x1=y.max(), y1=y.max(), line=dict(color="Red"))
-    return fig
+# Pre-calculate path for the graph background
+alphas = np.linspace(0.01, 20, 50)
+path_data = []
+for a in alphas:
+    if "Ridge" in method: m = Ridge(alpha=a)
+    elif "Lasso" in method: m = Lasso(alpha=a)
+    else: m = LinearRegression()
+    m.fit(X_scaled, y)
+    path_data.append(m.coef_)
 
-# --- LAYOUT ---
-col1, col2 = st.columns([1, 1])
+path_df = np.array(path_data)
+fig_path = go.Figure()
+
+for i, col in enumerate(features):
+    fig_path.add_trace(go.Scatter(x=alphas, y=path_df[:, i], name=col,
+                                 line=dict(width=2), hovertemplate=f"<b>{col}</b><br>λ: %{{x}}<br>Weight: %{{y:.2f}}"))
+
+# Vertical indicator for current Lambda
+fig_path.add_vline(x=lam, line_dash="dash", line_color="#ff4b4b", annotation_text="Active λ")
+fig_path.update_layout(template="plotly_white", height=400, margin=dict(l=20, r=20, t=20, b=20))
+st.plotly_chart(fig_path, use_container_width=True)
+
+# --- VISUALIZATION 2: PREDICTED VS ACTUAL (WITH RESIDUALS) ---
+col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.plotly_chart(plot_paths(), use_container_width=True)
+    st.subheader("🎯 Prediction Accuracy")
+    fig_res = px.scatter(x=y, y=y_pred, color=np.abs(y-y_pred),
+                         color_continuous_scale='Viridis', labels={'x': 'Actual Charges', 'y': 'Predicted'},
+                         opacity=0.6)
+    fig_res.add_shape(type="line", x0=y.min(), y0=y.min(), x1=y.max(), y1=y.max(), line=dict(color="Red", dash="dot"))
+    fig_res.update_layout(template="plotly_white", coloraxis_showscale=False)
+    st.plotly_chart(fig_res, use_container_width=True)
 
 with col2:
-    st.plotly_chart(plot_geometry(), use_container_width=True)
+    st.subheader("💎 Weight Sparsity")
+    # Horizontal bar chart of weights
+    weight_df = pd.DataFrame({'Feature': features, 'Weight': weights}).sort_values('Weight')
+    fig_weights = px.bar(weight_df, x='Weight', y='Feature', orientation='h',
+                         color='Weight', color_continuous_scale='RdBu_r')
+    fig_weights.update_layout(template="plotly_white", showlegend=False)
+    st.plotly_chart(fig_weights, use_container_width=True)
 
-# --- STATS PANEL ---
-st.markdown("### 📊 Key Performance Indicators")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("R² Score", round(r2_score(y, y_pred), 4))
-k2.metric("MSE", f"{mean_squared_error(y, y_pred):.0f}")
-k3.metric("L1 Norm", round(np.linalg.norm(model.coef_, 1), 2))
-k4.metric("L2 Norm", round(np.linalg.norm(model.coef_, 2), 2))
+# --- NOVELTY: THE GEOMETRY OF CONSTRAINTS (Visual Explanation) ---
 
-# --- THE BAYESIAN/MATH SECTION ---
-with st.expander("Show Mathematical Derivation & Distributions"):
-    st.write("Current Weights:", model.coef_)
-    st.latex(r"w = (X^T X + \lambda I)^{-1} X^T y")
-    # Add Gaussian Likelihood vs Prior Plotly here
+with st.expander("🔮 Advanced Theory: Why is Lasso sparse?"):
+    st.write("In Lasso (L1), the constraint is a **Diamond**. The Loss Contours are more likely to hit the 'corners' of the diamond, which are exactly on the axes (where one weight becomes zero). In Ridge (L2), the constraint is a **Circle**, which doesn't have corners, so weights stay small but rarely hit zero.")
