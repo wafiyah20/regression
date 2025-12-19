@@ -1,75 +1,68 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.metrics import mean_squared_error, r2_score
+import plotly.graph_objects as go
 
-# ---------------------------------------------
-# STREAMLIT CONFIG + THEME
-# ---------------------------------------------
-st.set_page_config(
-    page_title="Interactive Regression Lab",
-    layout="wide",
-    page_icon="📘"
-)
+# ------------------------------
+# Streamlit page config & theme
+# ------------------------------
+st.set_page_config(page_title="Interactive Regression Lab", layout="wide", page_icon="📊")
 
-# Custom Baby-Blue Theme CSS
+# CSS for light pastel theme
 st.markdown("""
 <style>
-body {
-    background-color: #E8F3FF;
-}
-.sidebar .sidebar-content {
-    background-color: #D9EBFF !important;
-}
-.big-title {
-    font-size:36px;
-    color:#004D99;
-    font-weight:700;
-    text-align:center;
-}
-.card {
-    background:#FFFFFF;
-    padding:20px;
-    border-radius:18px;
-    box-shadow:0px 4px 10px rgba(0,0,0,0.07);
-}
-.section-title {
-    color:#0066CC;
-    font-size:22px;
-    font-weight:600;
-}
+body {background-color: #F5F9FF;}
+.sidebar .sidebar-content {background-color: #E3F2FF;}
+h1 {color:#004080;}
+h2 {color:#0066CC;}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------
-# TITLE
-# ---------------------------------------------
-st.markdown('<p class="big-title">📘 Interactive Regression Learning Lab</p>', unsafe_allow_html=True)
-st.write("A beautiful baby-blue regression simulator that helps beginners learn models visually. 💙")
+st.title("📊 Interactive Regression Learning Lab")
+st.write("Interactive regression tool with light pastel theme and real-time updates.")
 
-# ---------------------------------------------
-# LOAD DATA
-# ---------------------------------------------
+# ------------------------------
+# Load dataset
+# ------------------------------
 @st.cache_data
 def load_data():
     df = pd.read_csv("insurance.csv")
     return df
 
 df = load_data()
-
-st.markdown("### 📂 Dataset Preview")
+st.subheader("Dataset Preview")
 st.dataframe(df.head())
 
-# ---------------------------------------------
-# PREPROCESSING
-# ---------------------------------------------
+# ------------------------------
+# Sidebar Controls
+# ------------------------------
+st.sidebar.header("Controls")
+
+# Regression type dropdown
+model_type = st.sidebar.selectbox("Regression Model",
+                                  ["OLS (Linear Regression)", "Ridge", "Lasso", "Elastic Net"])
+
+# Lambda slider
+lambda_val = st.sidebar.slider("λ (Regularization strength)", 0.0, 5.0, 0.1, 0.01)
+
+# Alpha slider (Elastic Net only)
+alpha_val = 0.5
+if model_type == "Elastic Net":
+    alpha_val = st.sidebar.slider("α (L1/L2 mix)", 0.0, 1.0, 0.5, 0.01)
+
+# Noise injection
+noise_val = st.sidebar.slider("Noise (Add to target)", 0.0, 5.0, 0.0, 0.1)
+
+# ------------------------------
+# Preprocessing
+# ------------------------------
 categorical = ["sex", "smoker", "region"]
 numerical = ["age", "bmi", "children"]
 
@@ -78,36 +71,14 @@ preprocessor = ColumnTransformer([
     ("num", StandardScaler(), numerical)
 ])
 
-# ---------------------------------------------
-# SIDEBAR CONTROLS
-# ---------------------------------------------
-st.sidebar.title("⚙️ Controls")
-
-model_type = st.sidebar.selectbox(
-    "Choose Regression Type",
-    ["OLS (Linear Regression)", "Ridge", "Lasso", "Elastic Net"]
-)
-
-lambda_val = st.sidebar.slider("λ (Regularization Strength)", 0.0, 2.0, 0.1, 0.01)
-
-alpha_val = 0.5
-if model_type == "Elastic Net":
-    alpha_val = st.sidebar.slider("α (Mixing: L1 vs L2)", 0.0, 1.0, 0.5, 0.01)
-
-noise_amount = st.sidebar.slider("Add Noise for Experiment", 0.0, 5.0, 0.0, 0.1)
-
-# ---------------------------------------------
-# TRAIN/TEST SPLIT + MODEL SELECTION
-# ---------------------------------------------
 X = df.drop("charges", axis=1)
-y = df["charges"]
+y = df["charges"] + np.random.normal(0, noise_val*1000, size=len(df))
 
-# Noise injection
-y_noisy = y + np.random.normal(0, noise_amount * 1000, size=len(y))
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y_noisy, test_size=0.2, random_state=42)
-
-# Model choice
+# ------------------------------
+# Model Selection
+# ------------------------------
 if model_type == "OLS (Linear Regression)":
     model = LinearRegression()
 elif model_type == "Ridge":
@@ -125,58 +96,40 @@ pipe = Pipeline([
 pipe.fit(X_train, y_train)
 pred = pipe.predict(X_test)
 
-# ---------------------------------------------
-# METRICS
-# ---------------------------------------------
+# ------------------------------
+# Metrics
+# ------------------------------
 mse = mean_squared_error(y_test, pred)
-rmse = np.sqrt(mse)
-mae = mean_absolute_error(y_test, pred)
 r2 = r2_score(y_test, pred)
 
-# ------------------- METRICS CARD --------------------
-st.markdown("### 📊 Model Performance")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("MSE", f"{mse:,.2f}")
-col2.metric("RMSE", f"{rmse:,.2f}")
-col3.metric("MAE", f"{mae:,.2f}")
-col4.metric("R² Score", f"{r2:.4f}")
+st.subheader("Model Metrics")
+col1, col2 = st.columns(2)
+col1.metric("MSE", f"{mse:.2f}")
+col2.metric("R² Score", f"{r2:.2f}")
 
-# ---------------------------------------------
-# FEATURE IMPORTANCE HEATMAP (Coefficients)
-# ---------------------------------------------
-st.markdown("<div class='section-title'>🔥 Feature Importance (Heatmap)</div>", unsafe_allow_html=True)
+# ------------------------------
+# Predicted vs Actual Scatter Plot
+# ------------------------------
+st.subheader("Predicted vs Actual Scatter Plot")
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=y_test, y=pred, mode='markers',
+                          marker=dict(color='lightblue', size=8), name='Predictions'))
+fig1.add_trace(go.Scatter(x=y_test, y=y_test, mode='lines',
+                          line=dict(color='red', dash='dash'), name='Ideal Line'))
+fig1.update_layout(xaxis_title="Actual Charges", yaxis_title="Predicted Charges", 
+                   plot_bgcolor="#F5F9FF", paper_bgcolor="#F5F9FF")
+st.plotly_chart(fig1, use_container_width=True)
 
-# Get final feature names
-ohe = pipe.named_steps["prep"].named_transformers_["cat"]
-cat_features = ohe.get_feature_names_out(categorical)
-all_features = list(cat_features) + numerical
+# ------------------------------
+# Regularization Path (Weights vs λ)
+# ------------------------------
+st.subheader("Regularization Path (Weights vs λ)")
 
-coefs = pipe.named_steps["model"].coef_
-fig, ax = plt.subplots(figsize=(8, 4))
-sns.heatmap([coefs], annot=True, cmap="Blues", xticklabels=all_features)
-plt.yticks([])
-st.pyplot(fig)
+# Compute weight paths for lambda range
+lambda_range = np.linspace(0, 5, 50)
+coefs = []
 
-# ---------------------------------------------
-# PREDICTED VS ACTUAL
-# ---------------------------------------------
-st.markdown("<div class='section-title'>📈 Predicted vs Actual Charges</div>", unsafe_allow_html=True)
-fig2, ax2 = plt.subplots(figsize=(6, 6))
-ax2.scatter(y_test, pred, alpha=0.6)
-ax2.set_xlabel("Actual Charges")
-ax2.set_ylabel("Predicted Charges")
-ax2.set_title("Predicted vs Actual")
-st.pyplot(fig2)
-
-# ---------------------------------------------
-# BIAS–VARIANCE (Changing λ)
-# ---------------------------------------------
-st.markdown("<div class='section-title'>🔄 Bias–Variance Curve</div>", unsafe_allow_html=True)
-
-lambdas = np.linspace(0, 2, 30)
-errors = []
-
-for lam in lambdas:
+for lam in lambda_range:
     if model_type == "Ridge":
         temp_model = Ridge(alpha=lam)
     elif model_type == "Lasso":
@@ -185,34 +138,16 @@ for lam in lambdas:
         temp_model = ElasticNet(alpha=lam, l1_ratio=alpha_val)
     else:
         temp_model = LinearRegression()
-
     temp_pipe = Pipeline([("prep", preprocessor), ("model", temp_model)])
     temp_pipe.fit(X_train, y_train)
-    temp_pred = temp_pipe.predict(X_test)
-    errors.append(mean_squared_error(y_test, temp_pred))
+    coefs.append(temp_pipe.named_steps["model"].coef_)
 
-fig3, ax3 = plt.subplots(figsize=(7, 4))
-ax3.plot(lambdas, errors)
-ax3.set_xlabel("λ")
-ax3.set_ylabel("MSE")
-ax3.set_title("Bias–Variance Tradeoff")
-st.pyplot(fig3)
+coefs = np.array(coefs)
+feature_names = list(pipe.named_steps["prep"].get_feature_names_out())
 
-# ---------------------------------------------
-# TEACH-ME MODE
-# ---------------------------------------------
-st.markdown("<div class='section-title'>📘 Teach-Me Mode</div>", unsafe_allow_html=True)
-
-st.info("""
-### What does λ (lambda) do?
-- Higher λ → more shrinkage → simpler model  
-- Low λ → flexible model → risk of overfitting  
-
-### What does α (alpha) in Elastic Net do?
-- α = 0 → becomes pure Ridge  
-- α = 1 → becomes pure Lasso  
-- 0 < α < 1 → mix of both  
-
-### Why does Lasso make coefficients 0?
-Because L1 regularization creates a sharp corner at zero → it pushes small weights to exactly zero.
-""")
+fig2 = go.Figure()
+for i, name in enumerate(feature_names):
+    fig2.add_trace(go.Scatter(x=lambda_range, y=coefs[:, i], mode='lines', name=name))
+fig2.update_layout(xaxis_title="λ", yaxis_title="Coefficient Value",
+                   plot_bgcolor="#F5F9FF", paper_bgcolor="#F5F9FF")
+st.plotly_chart(fig2, use_container_width=True)
